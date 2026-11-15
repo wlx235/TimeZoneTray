@@ -37,7 +37,9 @@ namespace TimeZoneTray {
                 }
             }
             var zone = TimeZoneInfo.FindSystemTimeZoneById(currentId);
-            return new AppConfig { Zones = new List<ZoneEntry> { new ZoneEntry { Id = zone.Id, Name = ZoneCatalog.DefaultName(zone) } } };
+            var fallback = new AppConfig { Zones = new List<ZoneEntry> { new ZoneEntry { Id = zone.Id, Name = ZoneCatalog.DefaultName(zone) } } };
+            if (warning != null) Save(fallback);
+            return fallback;
         }
         public void Save(AppConfig config) {
             Directory.CreateDirectory(Path.GetDirectoryName(path));
@@ -94,6 +96,20 @@ namespace TimeZoneTray {
                 using (var k=Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run")) {
                     var bytes = k == null ? null : k.GetValue(name) as byte[];
                     return bytes != null && bytes.Length > 0 && (bytes[0] == 3 || bytes[0] == 7);
+                }
+            }
+        }
+        public void SaveWithRollback(bool enabled, Action save) {
+            using (var k=Registry.CurrentUser.CreateSubKey(key)) {
+                object previous=k.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+                RegistryValueKind kind=previous == null ? RegistryValueKind.None : k.GetValueKind(name);
+                if (enabled) k.SetValue(name, "\"" + path + "\"", RegistryValueKind.String);
+                else k.DeleteValue(name, false);
+                try { save(); }
+                catch {
+                    if (previous == null) k.DeleteValue(name, false);
+                    else k.SetValue(name, previous, kind);
+                    throw;
                 }
             }
         }

@@ -77,6 +77,20 @@ internal static class UiTests {
                 Check(picker.Entry.Id=="Pacific Standard Time" && picker.Entry.Name=="美西","Wrong picker result");
             }
         });
+        Run("Settings request waits for switching to finish",delegate {
+            var type=typeof(SettingsForm).Assembly.GetType("TimeZoneTray.TrayContext");
+            var flags=System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            using(var signal=new System.Threading.EventWaitHandle(false,System.Threading.EventResetMode.AutoReset))
+            using(var context=(ApplicationContext)Activator.CreateInstance(type,flags | System.Reflection.BindingFlags.Public,null,new object[] { true,signal },null)) {
+                var switching=type.GetField("switching",flags);
+                var timer=(Timer)type.GetField("timer",flags).GetValue(context);
+                var tick=typeof(Timer).GetMethod("OnTick",flags);
+                switching.SetValue(context,true); signal.Set(); tick.Invoke(timer,new object[] { EventArgs.Empty });
+                switching.SetValue(context,false); tick.Invoke(timer,new object[] { EventArgs.Empty });
+                var form=(Form)type.GetField("settings",flags).GetValue(context);
+                Check(form!=null && form.Visible,"Settings request was lost during switching");
+            }
+        });
         Console.WriteLine("RESULT "+passed+" passed, "+failed+" failed"); return failed==0 ? 0 : 1;
     }
 }

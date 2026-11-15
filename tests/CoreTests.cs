@@ -33,6 +33,9 @@ internal static class CoreTests {
             string warning; var c=new ConfigStore(path).Load("UTC",out warning);
             Check(c.Zones.Count==1 && !String.IsNullOrEmpty(warning),"Missing recovery");
             Check(Directory.GetFiles(dir,"broken.json.corrupt-*").Length==1,"Original not preserved");
+            string warningAgain; var recovered=new ConfigStore(path).Load("UTC",out warningAgain);
+            Check(warningAgain==null && recovered.Zones.Count==1,"Recovery was not persisted");
+            Check(Directory.GetFiles(dir,"broken.json.corrupt-*").Length==1,"Repeated backup");
         });
         Run("Unknown and duplicate entries filtered, empty list retained", delegate {
             var c=ConfigStore.Normalize(new AppConfig { Zones=new List<ZoneEntry> {
@@ -61,6 +64,21 @@ internal static class CoreTests {
                 Check(!s.Enabled,"Unexpected startup"); s.SetEnabled(true); Check(s.Enabled,"Enable failed");
                 using(var k=Registry.CurrentUser.OpenSubKey(key)) Check((string)k.GetValue("Test")=="\"C:\\a folder\\时区.exe\"","Unquoted path");
                 s.SetEnabled(false); Check(!s.Enabled,"Disable failed");
+            } finally { Registry.CurrentUser.DeleteSubKeyTree(key,false); }
+        });
+        Run("Failed settings save preserves exact previous startup value", delegate {
+            string key="Software\\TimeZoneTray.Tests\\"+Guid.NewGuid().ToString("N");
+            try {
+                using(var k=Registry.CurrentUser.CreateSubKey(key)) k.SetValue("Test", "%TEMP%\\old.exe", RegistryValueKind.ExpandString);
+                var startup=new StartupManager("C:\\new.exe",key,"Test");
+                var method=typeof(StartupManager).GetMethod("SaveWithRollback");
+                Check(method!=null,"Save operation does not preserve the original startup value");
+                try { method.Invoke(startup,new object[] { true, (Action)delegate { throw new IOException("simulated failure"); } }); }
+                catch(System.Reflection.TargetInvocationException ex) { Check(ex.InnerException is IOException,"Wrong error"); }
+                using(var k=Registry.CurrentUser.OpenSubKey(key)) {
+                    Check((string)k.GetValue("Test",null,RegistryValueOptions.DoNotExpandEnvironmentNames)=="%TEMP%\\old.exe", "Original path changed");
+                    Check(k.GetValueKind("Test")==RegistryValueKind.ExpandString,"Original value kind changed");
+                }
             } finally { Registry.CurrentUser.DeleteSubKeyTree(key,false); }
         });
         Console.WriteLine("RESULT " + passed + " passed, " + failed + " failed");

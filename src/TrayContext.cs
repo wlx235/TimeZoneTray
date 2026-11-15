@@ -55,7 +55,7 @@ namespace TimeZoneTray {
             };
             timer=new System.Windows.Forms.Timer { Interval=500 };
             timer.Tick+=delegate {
-                if(settingsSignal.WaitOne(0)) ShowSettings();
+                if(!switching && settingsSignal.WaitOne(0)) ShowSettings();
                 if(++ticks%10==0) RefreshStatus();
             };
             timer.Start(); RefreshStatus();
@@ -136,13 +136,8 @@ namespace TimeZoneTray {
             if(switching || disposed) return;
             if(settings!=null && !settings.IsDisposed) { ShowWindow(settings.Handle,1); settings.Activate(); return; }
             settings=new SettingsForm(config,!preview && startup.Enabled,!preview && startup.DisabledByWindows,preview,delegate(AppConfig updated,bool enabled) {
-                bool oldEnabled=!preview && startup.Enabled;
-                if(!preview) startup.SetEnabled(enabled);
-                try { store.Save(updated); }
-                catch {
-                    if(!preview) startup.SetEnabled(oldEnabled);
-                    throw;
-                }
+                if(preview) store.Save(updated);
+                else startup.SaveWithRollback(enabled, delegate { store.Save(updated); });
                 config=updated; RefreshStatus();
             });
             settings.Icon=icon; settings.FormClosed+=delegate { settings=null; }; settings.Show();
